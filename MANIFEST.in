@@ -5,7 +5,9 @@ include terraform_usage_gen.py
 include action.yml
 include .pre-commit-hooks.yaml
 include .gitlab-ci-template.yml
+include TEMPLATES.md
 
+recursive-include templates *.tpl
 recursive-include .github *.yml *.yaml
 graft docs
 

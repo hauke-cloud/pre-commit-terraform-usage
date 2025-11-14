@@ -5,6 +5,7 @@ Terraform Usage Block Generator
 This tool parses Terraform variable files and generates a usage block
 with required and optional variables separated into sections.
 Variables with default values are considered optional, others are required.
+Supports custom templates for flexible output formatting.
 """
 
 import argparse
@@ -12,6 +13,15 @@ import re
 import sys
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
+
+
+# Built-in default template
+DEFAULT_TEMPLATE = """```hcl
+module "{module_name}" {{
+{source_line}{version_line}
+{required_variables}
+{optional_variables}}}
+```"""
 
 
 class TerraformVariable:
@@ -104,8 +114,8 @@ def parse_terraform_variables(file_path: Path) -> List[TerraformVariable]:
 
 
 def generate_usage_block(variables: List[TerraformVariable], module_name: str = "example",
-                        source: str = "", version: str = "") -> str:
-    """Generate the complete usage block from parsed variables."""
+                        source: str = "", version: str = "", template: str = None) -> str:
+    """Generate the complete usage block from parsed variables using a template."""
     required_vars = [v for v in variables if not v.is_optional]
     optional_vars = [v for v in variables if v.is_optional]
     
@@ -123,45 +133,73 @@ def generate_usage_block(variables: List[TerraformVariable], module_name: str = 
             else:
                 max_value_length = max(max_value_length, 3)  # "..."
     
-    lines = []
-    
-    # Start with markdown code fence
-    lines.append("```hcl")
-    
-    # Module declaration
-    lines.append(f'module "{module_name}" {{')
-    if source:
-        lines.append(f'  source  = "{source}"')
-    if version:
-        lines.append(f'  version = "{version}"')
-    
-    if (source or version) and (required_vars or optional_vars):
-        lines.append("")
-    
+    # Build required variables section
+    required_lines = []
     if required_vars:
-        lines.append("  ############")
-        lines.append("  # Required #")
-        lines.append("  ############")
+        required_lines.append("  ############")
+        required_lines.append("  # Required #")
+        required_lines.append("  ############")
         for var in required_vars:
-            lines.append(var.format_for_usage(max_name_length, max_value_length))
+            required_lines.append(var.format_for_usage(max_name_length, max_value_length))
     
-    if required_vars and optional_vars:
-        lines.append("")
-    
+    # Build optional variables section
+    optional_lines = []
     if optional_vars:
-        lines.append("  ############")
-        lines.append("  # Optional #")
-        lines.append("  ############")
+        if required_vars:
+            optional_lines.append("")
+        optional_lines.append("  ############")
+        optional_lines.append("  # Optional #")
+        optional_lines.append("  ############")
         for var in optional_vars:
-            lines.append(var.format_for_usage(max_name_length, max_value_length))
+            optional_lines.append(var.format_for_usage(max_name_length, max_value_length))
     
-    # Close module block
-    lines.append("}")
+    # Prepare template variables
+    source_line = f'  source  = "{source}"\n' if source else ""
+    version_line = f'  version = "{version}"\n' if version else ""
     
-    # End markdown code fence
-    lines.append("```")
+    # Add spacing after source/version if there are variables
+    if (source_line or version_line) and (required_vars or optional_vars):
+        if version_line:
+            version_line += "\n"
+        elif source_line:
+            source_line += "\n"
     
-    return "\n".join(lines)
+    required_variables = "\n".join(required_lines) if required_lines else ""
+    optional_variables = "\n".join(optional_lines) if optional_lines else ""
+    
+    # Use provided template or default
+    if template is None:
+        template = DEFAULT_TEMPLATE
+    
+    # Replace template variables
+    output = template.format(
+        module_name=module_name,
+        source=source,
+        version=version,
+        source_line=source_line,
+        version_line=version_line,
+        required_variables=required_variables,
+        optional_variables=optional_variables
+    )
+    
+    return output
+
+
+def load_template(template_path: Path) -> str:
+    """Load a template from a file."""
+    if not template_path.exists():
+        print(f"Warning: Template file {template_path} not found", file=sys.stderr)
+        return DEFAULT_TEMPLATE
+    
+    template_content = template_path.read_text()
+    
+    # Remove comment lines (lines starting with #)
+    lines = []
+    for line in template_content.split('\n'):
+        if not line.strip().startswith('#'):
+            lines.append(line)
+    
+    return '\n'.join(lines)
 
 
 def update_readme(readme_path: Path, usage_block: str, module_name: str = "",
@@ -291,8 +329,29 @@ def main():
         type=str,
         help="Module version (default: extracted from metadata)",
     )
+    parser.add_argument(
+        "--template",
+        type=Path,
+        help="Path to custom template file (default: built-in template)",
+    )
+    parser.add_argument(
+        "--list-templates",
+        action="store_true",
+        help="List available built-in templates",
+    )
     
     args = parser.parse_args()
+    
+    # List templates if requested
+    if args.list_templates:
+        print("Built-in templates:")
+        print("  - default   : Standard format with code fences and sections")
+        print("  - compact   : Compact format without extra spacing")
+        print("  - minimal   : Just the module block, no code fences")
+        print("  - detailed  : Extended format with usage instructions")
+        print("\nTo use a built-in template, specify: --template templates/<name>.tpl")
+        print("To create a custom template, see templates/ directory for examples")
+        return 0
     
     # Determine directory to process
     if args.files:
@@ -357,12 +416,18 @@ def main():
         if not module_name:
             module_name = "example"
         
+        # Load template if specified
+        template = None
+        if args.template:
+            template = load_template(args.template)
+        
         # Generate usage block with metadata
         usage_block = generate_usage_block(
             all_variables,
             module_name=module_name,
             source=source,
-            version=version
+            version=version,
+            template=template
         )
         
         if args.check:
@@ -400,7 +465,8 @@ def main():
                                 all_variables,
                                 module_name=module_name,
                                 source=source,
-                                version=version
+                                version=version,
+                                template=template
                             )
                         
                         # Prepare expected block with metadata
