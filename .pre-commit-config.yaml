@@ -1,10 +1,10 @@
 repos:
   # Use from remote repository (recommended for others)
-  - repo: https://github.com/your-org/terraform-usage-validator
+  - repo: https://github.com/hauke-cloud/pre-commit-terraform-usage
     rev: v1.0.0
     hooks:
       - id: terraform-usage-docs
-  
+
   # Or use locally for development
   # - repo: local
   #   hooks:
