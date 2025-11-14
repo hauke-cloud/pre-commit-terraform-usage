@@ -1,7 +1,7 @@
 - id: terraform-usage-docs
   name: Terraform Usage Documentation
   description: Check if Terraform usage block in README.md is up-to-date
-  entry: terraform_usage_gen.py
+  entry: terraform-usage-gen
   language: python
   files: \.(tf|md)$
   pass_filenames: true
