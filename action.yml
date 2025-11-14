@@ -1,0 +1,93 @@
+name: 'Terraform Usage Block Validator'
+description: 'Validate and update Terraform usage blocks in README.md based on variables.tf'
+author: 'Your Organization'
+
+branding:
+  icon: 'check-circle'
+  color: 'purple'
+
+inputs:
+  mode:
+    description: 'Mode: "check" to validate only, "update" to update README.md'
+    required: false
+    default: 'check'
+  directory:
+    description: 'Directory containing variables.tf and README.md'
+    required: false
+    default: '.'
+  readme-path:
+    description: 'Custom path to README.md (optional)'
+    required: false
+    default: ''
+  fail-on-diff:
+    description: 'Fail if usage block is out of date (only applies in check mode)'
+    required: false
+    default: 'true'
+
+outputs:
+  updated:
+    description: 'Whether the README.md was updated (true/false)'
+    value: ${{ steps.check-update.outputs.updated }}
+  status:
+    description: 'Status of the check: "up-to-date", "updated", or "outdated"'
+    value: ${{ steps.check-update.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if [ -f "${{ github.action_path }}/requirements.txt" ]; then
+          pip install -r "${{ github.action_path }}/requirements.txt"
+        fi
+    
+    - name: Check or Update Usage Block
+      id: check-update
+      shell: bash
+      run: |
+        SCRIPT_PATH="${{ github.action_path }}/terraform_usage_gen.py"
+        DIR="${{ inputs.directory }}"
+        MODE="${{ inputs.mode }}"
+        README_PATH="${{ inputs.readme-path }}"
+        FAIL_ON_DIFF="${{ inputs.fail-on-diff }}"
+        
+        echo "Running in $MODE mode for directory: $DIR"
+        
+        # Build command
+        CMD="python3 $SCRIPT_PATH --dir $DIR"
+        
+        if [ "$MODE" = "check" ]; then
+          CMD="$CMD --check"
+        fi
+        
+        if [ -n "$README_PATH" ]; then
+          CMD="$CMD --readme $README_PATH"
+        fi
+        
+        # Run the command
+        if $CMD; then
+          echo "status=up-to-date" >> $GITHUB_OUTPUT
+          echo "updated=false" >> $GITHUB_OUTPUT
+          echo "✅ Usage block is up-to-date"
+        else
+          EXIT_CODE=$?
+          if [ "$MODE" = "check" ]; then
+            echo "status=outdated" >> $GITHUB_OUTPUT
+            echo "updated=false" >> $GITHUB_OUTPUT
+            echo "❌ Usage block is out of date"
+            if [ "$FAIL_ON_DIFF" = "true" ]; then
+              exit $EXIT_CODE
+            fi
+          else
+            # Update mode - file was modified
+            echo "status=updated" >> $GITHUB_OUTPUT
+            echo "updated=true" >> $GITHUB_OUTPUT
+            echo "✅ Usage block has been updated"
+          fi
+        fi

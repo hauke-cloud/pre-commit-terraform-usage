@@ -1,0 +1,16 @@
+repos:
+  # Use from remote repository (recommended for others)
+  - repo: https://github.com/your-org/terraform-usage-validator
+    rev: v1.0.0
+    hooks:
+      - id: terraform-usage-docs
+  
+  # Or use locally for development
+  # - repo: local
+  #   hooks:
+  #     - id: terraform-usage-docs
+  #       name: Generate Terraform Usage Documentation
+  #       entry: python3 terraform_usage_gen.py
+  #       language: system
+  #       files: \.(tf)$
+  #       pass_filenames: true

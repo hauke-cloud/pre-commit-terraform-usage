@@ -1,0 +1,104 @@
+name: Test Action
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-check-mode:
+    runs-on: ubuntu-latest
+    name: Test Check Mode
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Test check mode (should pass)
+        uses: ./
+        with:
+          mode: 'check'
+          directory: '.'
+      
+      - name: Verify outputs
+        run: |
+          echo "Status: ${{ steps.test.outputs.status }}"
+          echo "Updated: ${{ steps.test.outputs.updated }}"
+
+  test-update-mode:
+    runs-on: ubuntu-latest
+    name: Test Update Mode
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Modify variables to trigger update
+        run: |
+          echo 'variable "test_var" { description = "Test" }' >> variables.tf
+      
+      - name: Test update mode
+        id: update
+        uses: ./
+        with:
+          mode: 'update'
+      
+      - name: Check if file was modified
+        run: |
+          if git diff --quiet README.md; then
+            echo "README was not modified as expected"
+          else
+            echo "README was modified"
+            git diff README.md
+          fi
+      
+      - name: Verify outputs
+        run: |
+          echo "Status: ${{ steps.update.outputs.status }}"
+          echo "Updated: ${{ steps.update.outputs.updated }}"
+
+  test-custom-directory:
+    runs-on: ubuntu-latest
+    name: Test Custom Directory
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create test directory
+        run: |
+          mkdir -p test-module
+          cp variables.tf test-module/
+          cat > test-module/README.md << 'EOF'
+          # Test Module
+          <!-- BEGIN_AUTOMATED_TF_USAGE_BLOCK -->
+          <!-- END_AUTOMATED_TF_USAGE_BLOCK -->
+          EOF
+      
+      - name: Test with custom directory
+        uses: ./
+        with:
+          mode: 'check'
+          directory: './test-module'
+
+  test-multiple-modules:
+    runs-on: ubuntu-latest
+    name: Test Multiple Modules
+    strategy:
+      matrix:
+        module: [module1, module2]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create test modules
+        run: |
+          mkdir -p modules/${{ matrix.module }}
+          cp variables.tf modules/${{ matrix.module }}/
+          cat > modules/${{ matrix.module }}/README.md << 'EOF'
+          # ${{ matrix.module }}
+          <!-- BEGIN_AUTOMATED_TF_USAGE_BLOCK -->
+          <!-- END_AUTOMATED_TF_USAGE_BLOCK -->
+          EOF
+      
+      - name: Update module
+        uses: ./
+        with:
+          mode: 'update'
+          directory: 'modules/${{ matrix.module }}'
+      
+      - name: Show results
+        run: cat modules/${{ matrix.module }}/README.md

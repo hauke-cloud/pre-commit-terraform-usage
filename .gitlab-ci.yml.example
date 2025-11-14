@@ -1,0 +1,52 @@
+# Example GitLab CI Configuration
+# Copy this to .gitlab-ci.yml and customize as needed
+
+# Include the terraform usage check template
+include:
+  - local: '.gitlab-ci-template.yml'
+
+stages:
+  - validate
+  - test
+  - build
+
+# The check-terraform-usage job is automatically defined by the included template
+# It will run in the 'test' stage by default
+
+# You can also define it explicitly if you need customization:
+# check-terraform-usage:
+#   extends: .terraform-usage-check
+#   stage: validate
+#   allow_failure: false
+
+# Example: Terraform validation job
+terraform-validate:
+  image: hashicorp/terraform:latest
+  stage: validate
+  script:
+    - terraform init -backend=false
+    - terraform validate
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# Example: Terraform format check
+terraform-fmt:
+  image: hashicorp/terraform:latest
+  stage: validate
+  script:
+    - terraform fmt -check -recursive
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# Example: Security scanning
+terraform-security:
+  image: aquasec/tfsec:latest
+  stage: test
+  script:
+    - tfsec .
+  allow_failure: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

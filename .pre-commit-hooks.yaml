@@ -1,0 +1,8 @@
+- id: terraform-usage-docs
+  name: Terraform Usage Documentation
+  description: Check if Terraform usage block in README.md is up-to-date
+  entry: python3 terraform_usage_gen.py
+  language: python
+  files: \.(tf|md)$
+  pass_filenames: true
+  require_serial: true

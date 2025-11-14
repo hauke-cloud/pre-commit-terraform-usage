@@ -1,0 +1,27 @@
+# GitLab CI Template for Terraform Usage Block Validation
+# Include this in your .gitlab-ci.yml:
+#
+# include:
+#   - remote: 'https://git.example.de/path/to/.gitlab-ci-template.yml'
+#
+# Or include it locally:
+#
+# include:
+#   - local: '.gitlab-ci-template.yml'
+
+.terraform-usage-check:
+  image: python:3.9-slim
+  stage: test
+  before_script:
+    - pip install --no-cache-dir -r requirements.txt || echo "No requirements.txt or already satisfied"
+  script:
+    - python3 terraform_usage_gen.py --check --dir .
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+# Job that can be used directly
+check-terraform-usage:
+  extends: .terraform-usage-check
+  allow_failure: false
