@@ -24,20 +24,25 @@ class TerraformVariable:
         self.default = default
         self.is_optional = default is not None
     
-    def format_for_usage(self, max_name_length: int = 0) -> str:
-        """Format variable for usage block with aligned equals signs."""
-        padding = " " * (max_name_length - len(self.name))
+    def format_for_usage(self, max_name_length: int = 0, max_value_length: int = 0) -> str:
+        """Format variable for usage block with aligned equals signs and comments."""
+        name_padding = " " * (max_name_length - len(self.name))
         
         if self.default is not None:
             # Format the default value for display
             default_str = self.default.strip()
             # For multi-line defaults, just show first line or summarize
             if '\n' in default_str:
-                return f"  # {self.name}{padding} = ... # Optional: {self.description}"
+                value_str = "..."
             else:
-                return f"  # {self.name}{padding} = {default_str} # Optional: {self.description}"
+                value_str = default_str
+            
+            value_padding = " " * (max_value_length - len(value_str))
+            return f"  # {self.name}{name_padding} = {value_str}{value_padding} # Optional: {self.description}"
         else:
-            return f"  {self.name}{padding} = # Required: {self.description}"
+            # For required variables, no default value
+            value_padding = " " * max_value_length
+            return f"  {self.name}{name_padding} = {value_padding} # Required: {self.description}"
 
 
 def parse_terraform_variables(file_path: Path) -> List[TerraformVariable]:
@@ -98,8 +103,9 @@ def parse_terraform_variables(file_path: Path) -> List[TerraformVariable]:
     return variables
 
 
-def generate_usage_block(variables: List[TerraformVariable]) -> str:
-    """Generate the usage block from parsed variables."""
+def generate_usage_block(variables: List[TerraformVariable], module_name: str = "example",
+                        source: str = "", version: str = "") -> str:
+    """Generate the complete usage block from parsed variables."""
     required_vars = [v for v in variables if not v.is_optional]
     optional_vars = [v for v in variables if v.is_optional]
     
@@ -107,27 +113,59 @@ def generate_usage_block(variables: List[TerraformVariable]) -> str:
     all_vars = required_vars + optional_vars
     max_name_length = max(len(v.name) for v in all_vars) if all_vars else 0
     
+    # Calculate max default value length for alignment
+    max_value_length = 0
+    for var in optional_vars:
+        if var.default:
+            default_str = var.default.strip()
+            if '\n' not in default_str:
+                max_value_length = max(max_value_length, len(default_str))
+            else:
+                max_value_length = max(max_value_length, 3)  # "..."
+    
     lines = []
     
+    # Start with markdown code fence
+    lines.append("```hcl")
+    
+    # Module declaration
+    lines.append(f'module "{module_name}" {{')
+    if source:
+        lines.append(f'  source  = "{source}"')
+    if version:
+        lines.append(f'  version = "{version}"')
+    
+    if (source or version) and (required_vars or optional_vars):
+        lines.append("")
+    
     if required_vars:
-        lines.append("  ###########")
+        lines.append("  ############")
         lines.append("  # Required #")
-        lines.append("  ###########")
+        lines.append("  ############")
         for var in required_vars:
-            lines.append(var.format_for_usage(max_name_length))
+            lines.append(var.format_for_usage(max_name_length, max_value_length))
+    
+    if required_vars and optional_vars:
         lines.append("")
     
     if optional_vars:
-        lines.append("  ###########")
+        lines.append("  ############")
         lines.append("  # Optional #")
-        lines.append("  ###########")
+        lines.append("  ############")
         for var in optional_vars:
-            lines.append(var.format_for_usage(max_name_length))
+            lines.append(var.format_for_usage(max_name_length, max_value_length))
+    
+    # Close module block
+    lines.append("}")
+    
+    # End markdown code fence
+    lines.append("```")
     
     return "\n".join(lines)
 
 
-def update_readme(readme_path: Path, usage_block: str) -> bool:
+def update_readme(readme_path: Path, usage_block: str, module_name: str = "",
+                 source: str = "", version: str = "") -> bool:
     """Update README.md with the generated usage block."""
     if not readme_path.exists():
         print(f"Warning: {readme_path} not found", file=sys.stderr)
@@ -147,6 +185,42 @@ def update_readme(readme_path: Path, usage_block: str) -> bool:
         print(f"{end_marker}", file=sys.stderr)
         return False
     
+    # Extract existing metadata if present
+    metadata_pattern = re.compile(
+        r'<!-- BEGIN_AUTOMATED_TF_USAGE_BLOCK -->\s*'
+        r'(?:<!-- MODULE: (.*?) -->\s*)?'
+        r'(?:<!-- SOURCE: (.*?) -->\s*)?'
+        r'(?:<!-- VERSION: (.*?) -->\s*)?',
+        re.DOTALL
+    )
+    
+    match = metadata_pattern.search(content)
+    if match and not module_name:
+        # Use existing metadata if not provided via command line
+        existing_module = match.group(1) or "example"
+        existing_source = match.group(2) or ""
+        existing_version = match.group(3) or ""
+        
+        if not module_name:
+            module_name = existing_module
+        if not source:
+            source = existing_source
+        if not version:
+            version = existing_version
+    
+    # Prepare metadata comments
+    metadata_lines = []
+    if module_name:
+        metadata_lines.append(f"<!-- MODULE: {module_name} -->")
+    if source:
+        metadata_lines.append(f"<!-- SOURCE: {source} -->")
+    if version:
+        metadata_lines.append(f"<!-- VERSION: {version} -->")
+    
+    metadata_str = "\n".join(metadata_lines)
+    if metadata_str:
+        metadata_str += "\n"
+    
     # Replace content between markers
     pattern = re.compile(
         f"{re.escape(begin_marker)}.*?{re.escape(end_marker)}",
@@ -154,7 +228,7 @@ def update_readme(readme_path: Path, usage_block: str) -> bool:
     )
     
     new_content = pattern.sub(
-        f"{begin_marker}\n{usage_block}\n{end_marker}",
+        f"{begin_marker}\n{metadata_str}{usage_block}\n{end_marker}",
         content
     )
     
@@ -202,6 +276,21 @@ def main():
         action="store_true",
         help="Check if documentation is up to date (exit 1 if not)",
     )
+    parser.add_argument(
+        "--module-name",
+        type=str,
+        help="Module name for the usage block (default: extracted from metadata or 'example')",
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        help="Module source URL (default: extracted from metadata)",
+    )
+    parser.add_argument(
+        "--version",
+        type=str,
+        help="Module version (default: extracted from metadata)",
+    )
     
     args = parser.parse_args()
     
@@ -234,11 +323,47 @@ def main():
             print(f"No variables found in {directory}", file=sys.stderr)
             continue
         
-        # Generate usage block
-        usage_block = generate_usage_block(all_variables)
-        
         # Determine README path
         readme_path = args.readme if args.readme else directory / "README.md"
+        
+        # Extract metadata from README if exists and not provided
+        module_name = args.module_name or ""
+        source = args.source or ""
+        version = args.version or ""
+        
+        # Try to extract existing metadata from README
+        if readme_path.exists() and not (module_name and source and version):
+            content = readme_path.read_text()
+            begin_marker = "<!-- BEGIN_AUTOMATED_TF_USAGE_BLOCK -->"
+            
+            if begin_marker in content:
+                metadata_pattern = re.compile(
+                    r'<!-- BEGIN_AUTOMATED_TF_USAGE_BLOCK -->\s*'
+                    r'(?:<!-- MODULE: (.*?) -->\s*)?'
+                    r'(?:<!-- SOURCE: (.*?) -->\s*)?'
+                    r'(?:<!-- VERSION: (.*?) -->\s*)?',
+                    re.DOTALL
+                )
+                match = metadata_pattern.search(content)
+                if match:
+                    if not module_name and match.group(1):
+                        module_name = match.group(1)
+                    if not source and match.group(2):
+                        source = match.group(2)
+                    if not version and match.group(3):
+                        version = match.group(3)
+        
+        # Use defaults if still not set
+        if not module_name:
+            module_name = "example"
+        
+        # Generate usage block with metadata
+        usage_block = generate_usage_block(
+            all_variables,
+            module_name=module_name,
+            source=source,
+            version=version
+        )
         
         if args.check:
             # Check mode: verify if update is needed
@@ -248,6 +373,7 @@ def main():
                 end_marker = "<!-- END_AUTOMATED_TF_USAGE_BLOCK -->"
                 
                 if begin_marker in content and end_marker in content:
+                    # Extract current block including metadata
                     pattern = re.compile(
                         f"{re.escape(begin_marker)}(.*?){re.escape(end_marker)}",
                         re.DOTALL
@@ -255,14 +381,51 @@ def main():
                     match = pattern.search(content)
                     if match:
                         current_block = match.group(1).strip()
-                        if current_block != usage_block.strip():
+                        
+                        # Extract metadata from current block to use in comparison
+                        metadata_pattern = re.compile(
+                            r'(?:<!-- MODULE: (.*?) -->\s*)?'
+                            r'(?:<!-- SOURCE: (.*?) -->\s*)?'
+                            r'(?:<!-- VERSION: (.*?) -->\s*)?',
+                            re.DOTALL
+                        )
+                        meta_match = metadata_pattern.match(current_block)
+                        if meta_match and not module_name:
+                            module_name = meta_match.group(1) or "example"
+                            source = meta_match.group(2) or ""
+                            version = meta_match.group(3) or ""
+                            
+                            # Regenerate with extracted metadata
+                            usage_block = generate_usage_block(
+                                all_variables,
+                                module_name=module_name,
+                                source=source,
+                                version=version
+                            )
+                        
+                        # Prepare expected block with metadata
+                        metadata_lines = []
+                        if module_name:
+                            metadata_lines.append(f"<!-- MODULE: {module_name} -->")
+                        if source:
+                            metadata_lines.append(f"<!-- SOURCE: {source} -->")
+                        if version:
+                            metadata_lines.append(f"<!-- VERSION: {version} -->")
+                        
+                        metadata_str = "\n".join(metadata_lines)
+                        if metadata_str:
+                            expected_block = f"{metadata_str}\n{usage_block}"
+                        else:
+                            expected_block = usage_block
+                        
+                        if current_block != expected_block.strip():
                             print(f"Usage block in {readme_path} is out of date", file=sys.stderr)
                             exit_code = 1
                         else:
                             print(f"Usage block in {readme_path} is up to date")
         else:
             # Update mode
-            if update_readme(readme_path, usage_block):
+            if update_readme(readme_path, usage_block, module_name, source, version):
                 print(f"Updated {readme_path}")
                 exit_code = 1  # Signal to pre-commit that file was modified
             else:
