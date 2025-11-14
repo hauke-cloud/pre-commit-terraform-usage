@@ -1,0 +1,20 @@
+include README.md
+include LICENSE
+include requirements.txt
+include terraform_usage_gen.py
+include action.yml
+include .pre-commit-hooks.yaml
+include .gitlab-ci-template.yml
+
+recursive-include .github *.yml *.yaml
+graft docs
+
+exclude .gitignore
+exclude setup.sh
+exclude variables.tf
+exclude *.pyc
+exclude .pre-commit-config.yaml
+exclude .gitlab-ci.yml.example
+
+global-exclude __pycache__
+global-exclude *.py[co]
