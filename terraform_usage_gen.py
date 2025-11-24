@@ -25,8 +25,93 @@ module "{module_name}" {{
 ```"""
 
 
+def parse_semver(version: str) -> Tuple[int, int, int, str]:
+    """Parse semantic version string into components.
+
+    Returns (major, minor, patch, prefix) tuple.
+    """
+    # Match version with optional 'v' prefix
+    match = re.match(r'^(v?)(\d+)\.(\d+)\.(\d+)', version)
+    if match:
+        prefix = match.group(1)
+        major = int(match.group(2))
+        minor = int(match.group(3))
+        patch = int(match.group(4))
+        return (major, minor, patch, prefix)
+    return (0, 0, 0, 'v')
+
+
+def analyze_commits_for_bump(directory: Path, since_tag: str = None) -> str:
+    """Analyze commits since last tag to determine version bump type.
+
+    Returns 'major', 'minor', 'patch', or 'none' based on conventional commits.
+    Logic based on svu (https://github.com/caarlos0/svu):
+    - BREAKING CHANGE or ! suffix = major
+    - feat: = minor
+    - fix: = patch
+    - chore: = none
+    """
+    try:
+        # Get commits since the tag
+        if since_tag:
+            cmd = ["git", "log", f"{since_tag}..HEAD", "--pretty=%s"]
+        else:
+            cmd = ["git", "log", "--pretty=%s"]
+
+        result = subprocess.run(
+            cmd,
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        if result.returncode != 0:
+            return 'none'
+
+        commits = result.stdout.strip().split('\n')
+        if not commits or commits == ['']:
+            return 'none'
+
+        # Analyze commits for the highest priority bump
+        has_breaking = False
+        has_feat = False
+        has_fix = False
+
+        for commit in commits:
+            commit_lower = commit.lower()
+
+            # Check for breaking changes
+            if 'breaking change:' in commit_lower or re.search(r'^[a-z]+!:', commit_lower):
+                has_breaking = True
+                break  # Major is highest priority
+
+            # Check for features
+            if commit_lower.startswith('feat:') or commit_lower.startswith('feat('):
+                has_feat = True
+
+            # Check for fixes
+            if commit_lower.startswith('fix:') or commit_lower.startswith('fix('):
+                has_fix = True
+
+        if has_breaking:
+            return 'major'
+        elif has_feat:
+            return 'minor'
+        elif has_fix:
+            return 'patch'
+        else:
+            return 'none'
+
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 'none'
+
+
 def get_git_version(directory: Path = None) -> Optional[str]:
-    """Get the latest git tag version, similar to svu."""
+    """Get the next git version based on svu logic.
+
+    Analyzes conventional commits since the last tag to determine the next version.
+    """
     if directory is None:
         directory = Path.cwd()
 
@@ -51,23 +136,59 @@ def get_git_version(directory: Path = None) -> Optional[str]:
             timeout=5
         )
 
+        current_tag = None
         if result.returncode == 0 and result.stdout.strip():
-            tag = result.stdout.strip()
-            # Return the tag as-is (should be like v1.0.0)
-            return tag
+            current_tag = result.stdout.strip()
 
-        # If no tags exist, try to get the commit hash
+        # If we have a tag, analyze commits since then to determine next version
+        if current_tag:
+            bump_type = analyze_commits_for_bump(directory, current_tag)
+
+            if bump_type == 'none':
+                # No commits warrant a version bump, return current tag
+                return current_tag
+
+            # Parse current version
+            major, minor, patch, prefix = parse_semver(current_tag)
+
+            # Apply bump
+            if bump_type == 'major':
+                major += 1
+                minor = 0
+                patch = 0
+            elif bump_type == 'minor':
+                minor += 1
+                patch = 0
+            elif bump_type == 'patch':
+                patch += 1
+
+            return f"{prefix}{major}.{minor}.{patch}"
+
+        # No tags exist - check if there are any commits
         result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "rev-list", "--count", "HEAD"],
             cwd=directory,
             capture_output=True,
             text=True,
             timeout=5
         )
 
-        if result.returncode == 0 and result.stdout.strip():
-            commit = result.stdout.strip()
-            return f"commit-{commit}"
+        if result.returncode == 0 and result.stdout.strip() != '0':
+            # We have commits but no tags - analyze all commits
+            bump_type = analyze_commits_for_bump(directory, None)
+
+            if bump_type == 'major':
+                return "v1.0.0"
+            elif bump_type == 'minor':
+                return "v0.1.0"
+            elif bump_type == 'patch':
+                return "v0.0.1"
+            else:
+                # Default to v0.1.0 if no conventional commits
+                return "v0.1.0"
+
+        # No commits at all
+        return None
 
     except (subprocess.TimeoutExpired, FileNotFoundError):
         # Git not available or timeout
@@ -495,12 +616,29 @@ def main():
         # Determine README path
         readme_path = args.readme if args.readme else directory / "README.md"
 
-        # Extract metadata from README if exists and not provided
+        # Extract metadata from command line arguments
         module_name = args.module_name or ""
         source = args.source or ""
         version = args.version or ""
 
-        # Try to extract existing metadata from README
+        # Auto-detect from git if not explicitly provided via command line and auto-detect is enabled
+        if not args.no_auto_detect:
+            if not args.module_name:
+                detected_module = get_module_name_from_path(directory)
+                if detected_module:
+                    module_name = detected_module
+
+            if not args.source:
+                git_url = get_git_remote_url(directory)
+                if git_url:
+                    source = git_url
+
+            if not args.version:
+                git_version = get_git_version(directory)
+                if git_version:
+                    version = git_version
+
+        # Fall back to existing README metadata only if auto-detection didn't provide values
         if readme_path.exists() and not (module_name and source and version):
             content = readme_path.read_text()
             begin_marker = "<!-- BEGIN_AUTOMATED_TF_USAGE_BLOCK -->"
@@ -521,21 +659,6 @@ def main():
                         source = match.group(2)
                     if not version and match.group(3):
                         version = match.group(3)
-
-        # Auto-detect from git if still not set and auto-detect is enabled
-        if not args.no_auto_detect:
-            if not module_name:
-                module_name = get_module_name_from_path(directory)
-
-            if not source:
-                git_url = get_git_remote_url(directory)
-                if git_url:
-                    source = git_url
-
-            if not version:
-                git_version = get_git_version(directory)
-                if git_version:
-                    version = git_version
 
         # Use fallback defaults if still not set
         if not module_name:
