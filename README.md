@@ -75,6 +75,11 @@ python3 terraform_usage_gen.py --no-auto-detect
 # Force auto-detection even when version/source/module metadata exists in README
 python3 terraform_usage_gen.py --force-autodetect
 
+# Force auto-detection for specific fields only
+python3 terraform_usage_gen.py --force-autodetect-source    # Force auto-detect source only
+python3 terraform_usage_gen.py --force-autodetect-version   # Force auto-detect version only
+python3 terraform_usage_gen.py --force-autodetect-module    # Force auto-detect module name only
+
 # Specify custom module name, source, and version
 python3 terraform_usage_gen.py --module-name "my-module" --source "github.com/user/repo" --version "v2.0.0"
 ```

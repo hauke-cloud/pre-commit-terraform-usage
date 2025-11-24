@@ -1,8 +1,17 @@
-name: Test Action
+name: Test GitHub Action
 
 on:
   push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'action.yml'
+      - '.github/workflows/test-action.yml'
   pull_request:
+    paths:
+      - 'action.yml'
+      - '.github/workflows/test-action.yml'
   workflow_dispatch:
 
 jobs:

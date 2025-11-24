@@ -1,4 +1,4 @@
-name: Update Terraform Usage Block
+name: Update Terraform Usage Block (Example)
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
       - master
     paths:
       - 'variables.tf'
+      - 'README.md'
 
 permissions:
   contents: write
