@@ -66,6 +66,19 @@ cd pre-commit-terraform-usage
 
 No external dependencies required - uses Python 3.6+ standard library only.
 
+## Command-Line Options
+
+```bash
+# Disable automatic detection of module name, source, and version from git
+python3 terraform_usage_gen.py --no-auto-detect
+
+# Force auto-detection even when version/source/module metadata exists in README
+python3 terraform_usage_gen.py --force-autodetect
+
+# Specify custom module name, source, and version
+python3 terraform_usage_gen.py --module-name "my-module" --source "github.com/user/repo" --version "v2.0.0"
+```
+
 ## Usage Example
 
 Given a `variables.tf`:

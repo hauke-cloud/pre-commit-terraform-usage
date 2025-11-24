@@ -561,6 +561,11 @@ def main():
         help="Disable automatic detection of module name, source, and version from git",
     )
     parser.add_argument(
+        "--force-autodetect",
+        action="store_true",
+        help="Force auto-detection even when version/source/module metadata exists in README",
+    )
+    parser.add_argument(
         "--template",
         type=Path,
         help="Path to custom template file (default: built-in template)",
@@ -639,7 +644,8 @@ def main():
                     version = git_version
 
         # Fall back to existing README metadata only if auto-detection didn't provide values
-        if readme_path.exists() and not (module_name and source and version):
+        # and force-autodetect is not enabled
+        if not args.force_autodetect and readme_path.exists() and not (module_name and source and version):
             content = readme_path.read_text()
             begin_marker = "<!-- BEGIN_AUTOMATED_TF_USAGE_BLOCK -->"
 
