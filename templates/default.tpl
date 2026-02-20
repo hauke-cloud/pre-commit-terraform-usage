@@ -12,5 +12,6 @@
 module "{module_name}" {{
 {source_line}{version_line}
 {required_variables}
-{optional_variables}}}
+{optional_variables}
+}}
 ```
